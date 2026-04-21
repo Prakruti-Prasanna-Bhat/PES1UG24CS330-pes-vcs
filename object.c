@@ -117,6 +117,18 @@ static int ensure_shard_dir(const char *object_pathname, char *dir_out, size_t d
 
     return 0;
 }
+static int write_all(int fd, const void *buf, size_t len) {
+    const unsigned char *p = (const unsigned char *)buf;
+    size_t written = 0;
+
+    while (written < len) {
+        ssize_t rc = write(fd, p + written, len - written);
+        if (rc <= 0) return -1;
+        written += (size_t)rc;
+    }
+
+    return 0;
+}
 // Write an object to the store.
 //
 // Object format on disk:
@@ -153,6 +165,10 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     size_t full_obj_len = 0;
     char final_path[512];
     char shard_dir[512];
+    char temp_path[512];
+    int fd = -1;
+    int dir_fd = -1;
+    int rc = -1;
 
     if (!id_out) return -1;
 
@@ -164,17 +180,42 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     object_path(id_out, final_path, sizeof(final_path));
 
     if (object_exists(id_out)) {
-        free(full_obj);
-        return 0;
+        rc = 0;
+        goto cleanup;
     }
 
     if (ensure_shard_dir(final_path, shard_dir, sizeof(shard_dir)) != 0) {
-        free(full_obj);
-        return -1;
+        goto cleanup;
     }
 
+    snprintf(temp_path, sizeof(temp_path), "%s/.tmp-object-%ld", shard_dir, (long)getpid());
+
+    fd = open(temp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0) goto cleanup;
+
+    if (write_all(fd, full_obj, full_obj_len) != 0) goto cleanup;
+    if (fsync(fd) != 0) goto cleanup;
+    if (close(fd) != 0) {
+        fd = -1;
+        goto cleanup;
+    }
+    fd = -1;
+
+    if (rename(temp_path, final_path) != 0) goto cleanup;
+
+    dir_fd = open(shard_dir, O_RDONLY);
+    if (dir_fd < 0) goto cleanup;
+
+    if (fsync(dir_fd) != 0) goto cleanup;
+
+    rc = 0;
+
+cleanup:
+    if (fd >= 0) close(fd);
+    if (dir_fd >= 0) close(dir_fd);
+    if (rc != 0) unlink(temp_path);
     free(full_obj);
-    return 0;
+    return rc;
 }
 
 // Read an object from the store.
