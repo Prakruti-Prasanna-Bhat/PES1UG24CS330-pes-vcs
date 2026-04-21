@@ -100,7 +100,23 @@ static int build_full_object(ObjectType type, const void *data, size_t len,
     *buf_len_out = total_len;
     return 0;
 }
+static int ensure_shard_dir(const char *object_pathname, char *dir_out, size_t dir_out_size) {
+    char *slash;
 
+    if (!object_pathname || !dir_out) return -1;
+
+    snprintf(dir_out, dir_out_size, "%s", object_pathname);
+    slash = strrchr(dir_out, '/');
+    if (!slash) return -1;
+
+    *slash = '\0';
+
+    if (mkdir(dir_out, 0755) != 0 && access(dir_out, F_OK) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
 // Write an object to the store.
 //
 // Object format on disk:
@@ -132,10 +148,11 @@ static int build_full_object(ObjectType type, const void *data, size_t len,
 
 //
 // Returns 0 on success, -1 on error.
-
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
     unsigned char *full_obj = NULL;
     size_t full_obj_len = 0;
+    char final_path[512];
+    char shard_dir[512];
 
     if (!id_out) return -1;
 
@@ -144,10 +161,22 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     }
 
     compute_hash(full_obj, full_obj_len, id_out);
+    object_path(id_out, final_path, sizeof(final_path));
+
+    if (object_exists(id_out)) {
+        free(full_obj);
+        return 0;
+    }
+
+    if (ensure_shard_dir(final_path, shard_dir, sizeof(shard_dir)) != 0) {
+        free(full_obj);
+        return -1;
+    }
 
     free(full_obj);
     return 0;
 }
+
 // Read an object from the store.
 //
 // Steps:
