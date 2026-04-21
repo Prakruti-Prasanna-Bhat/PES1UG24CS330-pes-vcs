@@ -241,7 +241,62 @@ cleanup:
 // The caller is responsible for calling free(*data_out).
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
-    // TODO: Implement
-    (void)id; (void)type_out; (void)data_out; (void)len_out;
+    char path[512];
+    FILE *fp = NULL;
+    long file_size;
+    unsigned char *file_buf = NULL;
+    unsigned char *payload_buf = NULL;
+    unsigned char *null_byte;
+    char type_str[16];
+    size_t payload_len;
+    size_t declared_len;
+
+    if (!id || !type_out || !data_out || !len_out) return -1;
+
+    object_path(id, path, sizeof(path));
+
+    fp = fopen(path, "rb");
+    if (!fp) return -1;
+
+    if (fseek(fp, 0, SEEK_END) != 0) goto fail;
+    file_size = ftell(fp);
+    if (file_size < 0) goto fail;
+    if (fseek(fp, 0, SEEK_SET) != 0) goto fail;
+
+    file_buf = malloc((size_t)file_size);
+    if (!file_buf) goto fail;
+
+    if (file_size > 0 && fread(file_buf, 1, (size_t)file_size, fp) != (size_t)file_size) goto fail;
+    fclose(fp);
+    fp = NULL;
+
+    null_byte = memchr(file_buf, '\0', (size_t)file_size);
+    if (!null_byte) goto fail;
+
+    if (sscanf((char *)file_buf, "%15s %zu", type_str, &declared_len) != 2) goto fail;
+
+    if (strcmp(type_str, "blob") == 0) *type_out = OBJ_BLOB;
+    else if (strcmp(type_str, "tree") == 0) *type_out = OBJ_TREE;
+    else if (strcmp(type_str, "commit") == 0) *type_out = OBJ_COMMIT;
+    else goto fail;
+
+    payload_len = (size_t)(file_buf + file_size - (null_byte + 1));
+    if (payload_len != declared_len) goto fail;
+
+    payload_buf = malloc(payload_len ? payload_len : 1);
+    if (!payload_buf) goto fail;
+
+    if (payload_len > 0) memcpy(payload_buf, null_byte + 1, payload_len);
+
+    *data_out = payload_buf;
+    *len_out = payload_len;
+
+    free(file_buf);
+    return 0;
+
+fail:
+    if (fp) fclose(fp);
+    free(file_buf);
+    free(payload_buf);
     return -1;
 }
