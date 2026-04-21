@@ -188,7 +188,9 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
         goto cleanup;
     }
 
-    snprintf(temp_path, sizeof(temp_path), "%s/.tmp-object-%ld", shard_dir, (long)getpid());
+    if (snprintf(temp_path, sizeof(temp_path), "%s/.tmp-object-%ld", shard_dir, (long)getpid()) >= (int)sizeof(temp_path)) {
+    goto cleanup;
+    }
 
     fd = open(temp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
     if (fd < 0) goto cleanup;
