@@ -61,6 +61,45 @@ int object_exists(const ObjectID *id) {
 }
 
 // ─── TODO: Implement these ──────────────────────────────────────────────────
+static const char *object_type_name(ObjectType type) {
+    switch (type) {
+        case OBJ_BLOB:   return "blob";
+        case OBJ_TREE:   return "tree";
+        case OBJ_COMMIT: return "commit";
+        default:         return NULL;
+    }
+}
+
+static int build_full_object(ObjectType type, const void *data, size_t len,
+                             unsigned char **buf_out, size_t *buf_len_out) {
+    const char *type_str;
+    char header[64];
+    int header_len;
+    size_t total_len;
+    unsigned char *buffer;
+
+    if (!buf_out || !buf_len_out) return -1;
+    if (len > 0 && !data) return -1;
+
+    type_str = object_type_name(type);
+    if (!type_str) return -1;
+
+    header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len);
+    if (header_len < 0 || (size_t)header_len + 1 > sizeof(header)) return -1;
+
+    header[header_len++] = '\0';
+
+    total_len = (size_t)header_len + len;
+    buffer = malloc(total_len);
+    if (!buffer) return -1;
+
+    memcpy(buffer, header, (size_t)header_len);
+    if (len > 0) memcpy(buffer + header_len, data, len);
+
+    *buf_out = buffer;
+    *buf_len_out = total_len;
+    return 0;
+}
 
 // Write an object to the store.
 //
@@ -93,39 +132,20 @@ int object_exists(const ObjectID *id) {
 
 //
 // Returns 0 on success, -1 on error.
+
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-    // Step 1: Map ObjectType to string
-    const char *type_str = NULL;
-    switch (type) {
-        case OBJ_BLOB:   type_str = "blob"; break;
-        case OBJ_TREE:   type_str = "tree"; break;
-        case OBJ_COMMIT: type_str = "commit"; break;
-        default:
-            return -1;
+    unsigned char *full_obj = NULL;
+    size_t full_obj_len = 0;
+
+    if (!id_out) return -1;
+
+    if (build_full_object(type, data, len, &full_obj, &full_obj_len) != 0) {
+        return -1;
     }
 
-    // Step 2: Build header "<type> <size>\0"
-    char header[64];
-    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len);
-    if (header_len < 0) return -1;
-
-    header[header_len++] = '\0'; // include null terminator
-
-    // Step 3: Allocate full object buffer (header + data)
-    size_t total_len = header_len + len;
-    unsigned char *full_obj = malloc(total_len);
-    if (!full_obj) return -1;
-
-    // Step 4: Copy header
-    memcpy(full_obj, header, header_len);
-
-    // Step 5: Copy data
-    memcpy(full_obj + header_len, data, len);
-
-    // NOTE: Further steps (hashing, writing) will be done in next commits
+    compute_hash(full_obj, full_obj_len, id_out);
 
     free(full_obj);
-
     return 0;
 }
 // Read an object from the store.
