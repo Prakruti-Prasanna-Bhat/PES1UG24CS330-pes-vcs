@@ -150,6 +150,73 @@ static int add_dir_entry(Tree *tree, const char *name, const ObjectID *hash) {
     snprintf(entry->name, sizeof(entry->name), "%s", name);
     return 0;
 }
+static void split_path_first(const char *path, char *first, size_t first_size,
+                             const char **rest_out) {
+    const char *slash = strchr(path, '/');
+    size_t len;
+
+    if (!slash) {
+        snprintf(first, first_size, "%s", path);
+        *rest_out = NULL;
+        return;
+    }
+
+    len = (size_t)(slash - path);
+    if (len >= first_size) len = first_size - 1;
+
+    memcpy(first, path, len);
+    first[len] = '\0';
+    *rest_out = slash + 1;
+}
+
+static int collect_subdir_names(const Index *index, const char *prefix,
+                                char names[][256], int *count_out) {
+    int i;
+    size_t prefix_len;
+    int count = 0;
+
+    if (!index || !prefix || !names || !count_out) return -1;
+
+    prefix_len = strlen(prefix);
+
+    for (i = 0; i < index->count; i++) {
+        const char *path = index->entries[i].path;
+        const char *suffix;
+        const char *slash;
+        char name[256];
+        int already_seen = 0;
+        int j;
+
+        if (strncmp(path, prefix, prefix_len) != 0) continue;
+
+        suffix = path + prefix_len;
+        slash = strchr(suffix, '/');
+        if (!slash) continue;
+
+        {
+            size_t len = (size_t)(slash - suffix);
+            if (len >= sizeof(name)) return -1;
+            memcpy(name, suffix, len);
+            name[len] = '\0';
+        }
+
+        for (j = 0; j < count; j++) {
+            if (strcmp(names[j], name) == 0) {
+                already_seen = 1;
+                break;
+            }
+        }
+
+        if (!already_seen) {
+            if (count >= MAX_TREE_ENTRIES) return -1;
+            snprintf(names[count], 256, "%s", name);
+            count++;
+        }
+    }
+
+    *count_out = count;
+    return 0;
+}
 // Build a tree hierarchy from the current index and write all tree
 // objects to the object store.
 //
