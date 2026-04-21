@@ -250,7 +250,8 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
     char type_str[16];
     size_t payload_len;
     size_t declared_len;
-
+    ObjectID computed_id;
+    
     if (!id || !type_out || !data_out || !len_out) return -1;
 
     object_path(id, path, sizeof(path));
@@ -272,6 +273,9 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
 
     null_byte = memchr(file_buf, '\0', (size_t)file_size);
     if (!null_byte) goto fail;
+
+    compute_hash(file_buf, (size_t)file_size, &computed_id);
+    if (memcmp(computed_id.hash, id->hash, HASH_SIZE) != 0) goto fail;
 
     if (sscanf((char *)file_buf, "%15s %zu", type_str, &declared_len) != 2) goto fail;
 
