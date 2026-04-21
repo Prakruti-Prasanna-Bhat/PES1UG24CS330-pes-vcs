@@ -15,7 +15,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-
+#include "index.h"
 // ─── Mode Constants ─────────────────────────────────────────────────────────
 
 #define MODE_FILE      0100644
@@ -115,7 +115,41 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 }
 
 // ─── TODO: Implement these ──────────────────────────────────────────────────
+static int name_in_tree(const Tree *tree, const char *name) {
+    int i;
+    for (i = 0; i < tree->count; i++) {
+        if (strcmp(tree->entries[i].name, name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
+static int add_file_entry(Tree *tree, const char *name, uint32_t mode, const ObjectID *hash) {
+    TreeEntry *entry;
+
+    if (!tree || !name || !hash) return -1;
+    if (tree->count >= MAX_TREE_ENTRIES) return -1;
+
+    entry = &tree->entries[tree->count++];
+    entry->mode = mode;
+    entry->hash = *hash;
+    snprintf(entry->name, sizeof(entry->name), "%s", name);
+    return 0;
+}
+
+static int add_dir_entry(Tree *tree, const char *name, const ObjectID *hash) {
+    TreeEntry *entry;
+
+    if (!tree || !name || !hash) return -1;
+    if (tree->count >= MAX_TREE_ENTRIES) return -1;
+
+    entry = &tree->entries[tree->count++];
+    entry->mode = MODE_DIR;
+    entry->hash = *hash;
+    snprintf(entry->name, sizeof(entry->name), "%s", name);
+    return 0;
+}
 // Build a tree hierarchy from the current index and write all tree
 // objects to the object store.
 //
@@ -130,8 +164,17 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //
 // Returns 0 on success, -1 on error.
 int tree_from_index(ObjectID *id_out) {
-    // TODO: Implement recursive tree building
-    // (See Lab Appendix for logical steps)
-    (void)id_out;
+    Index index;
+
+    if (!id_out) return -1;
+
+    if (index_load(&index) != 0) {
+        return -1;
+    }
+
+    if (index.count == 0) {
+        return -1;
+    }
+
     return -1;
 }
