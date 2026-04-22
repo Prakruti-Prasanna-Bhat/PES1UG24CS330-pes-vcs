@@ -195,21 +195,36 @@ int head_update(const ObjectID *new_commit) {
 // Returns 0 on success, -1 on error.
 int commit_create(const char *message, ObjectID *commit_id_out) {
     Commit c;
-    memset(&c, 0, sizeof(Commit)); // Clear the struct memory
-
-    // 1. Generate the root tree from the current index (staging area)
-    // This implicitly calls index_load, parses the paths, and writes OBJ_TREEs
+    memset(&c, 0, sizeof(Commit)); 
     if (tree_from_index(&c.tree) < 0) {
-        return -1; // Failed to build tree (maybe index is empty/corrupt)
+        return -1; 
     }
-    
+
+  
     if (head_read(&c.parent) == 0) {
         c.has_parent = 1;
     } else {
         c.has_parent = 0; 
     }
-    snprintf(c.author, sizeof(c.author), "%s", pes_author);
+
+   
+    snprintf(c.author, sizeof(c.author), "%s", pes_author());
     c.timestamp = (uint64_t)time(NULL);
     snprintf(c.message, sizeof(c.message), "%s", message);
-    return 0;
+
+    
+    void *commit_data = NULL;
+    size_t commit_len = 0;
+    if (commit_serialize(&c, &commit_data, &commit_len) < 0) {
+        return -1;
+    }
+    if (object_write(OBJ_COMMIT, commit_data, commit_len, commit_id_out) < 0) {
+        free(commit_data);
+        return -1;
+    }
+
+   
+    free(commit_data);
+    return head_update(commit_id_out);
+
 }
