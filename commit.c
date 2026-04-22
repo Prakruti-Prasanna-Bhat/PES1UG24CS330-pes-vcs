@@ -24,7 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
-
+#include "pes.h"
 // Forward declarations (implemented in object.c)
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out);
@@ -208,6 +208,8 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     } else {
         c.has_parent = 0; 
     }
-
+    snprintf(c.author, sizeof(c.author), "%s", pes_author);
+    c.timestamp = (uint64_t)time(NULL);
+    snprintf(c.message, sizeof(c.message), "%s", message);
     return 0;
 }
