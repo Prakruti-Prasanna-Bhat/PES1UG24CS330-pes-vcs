@@ -194,8 +194,15 @@ int head_update(const ObjectID *new_commit) {
 //
 // Returns 0 on success, -1 on error.
 int commit_create(const char *message, ObjectID *commit_id_out) {
-    // TODO: Implement commit creation
-    // (See Lab Appendix for logical steps)
-    (void)message; (void)commit_id_out;
-    return -1;
+    Commit c;
+    memset(&c, 0, sizeof(Commit)); // Clear the struct memory
+
+    // 1. Generate the root tree from the current index (staging area)
+    // This implicitly calls index_load, parses the paths, and writes OBJ_TREEs
+    if (tree_from_index(&c.tree) < 0) {
+        return -1; // Failed to build tree (maybe index is empty/corrupt)
+    }
+
+    // Temporary return until we add the parent linking in Step 2
+    return 0;
 }
