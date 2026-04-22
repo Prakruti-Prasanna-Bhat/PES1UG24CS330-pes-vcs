@@ -319,5 +319,5 @@ int tree_from_index(ObjectID *id_out) {
         return -1;
     }
 
-    return -1;
+    return write_tree_level(&index, "", id_out);
 }
