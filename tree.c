@@ -190,12 +190,14 @@ static int collect_subdir_names(const Index *index, const char *prefix,
         if (strncmp(path, prefix, prefix_len) != 0) continue;
 
         suffix = path + prefix_len;
+        if (*suffix == '\0') return -1;
+
         slash = strchr(suffix, '/');
         if (!slash) continue;
 
         {
             size_t len = (size_t)(slash - suffix);
-            if (len >= sizeof(name)) return -1;
+            if (len == 0 || len >= sizeof(name)) return -1;
             memcpy(name, suffix, len);
             name[len] = '\0';
         }
@@ -233,7 +235,12 @@ static int add_files_for_prefix(Tree *tree, const Index *index, const char *pref
         if (strncmp(path, prefix, prefix_len) != 0) continue;
 
         suffix = path + prefix_len;
+        if (*suffix == '\0') return -1;
         if (strchr(suffix, '/') != NULL) continue;
+
+        if (name_in_tree(tree, suffix)) {
+            return -1;
+        }
 
         if (add_file_entry(tree, suffix, src->mode, &src->hash) != 0) {
             return -1;
