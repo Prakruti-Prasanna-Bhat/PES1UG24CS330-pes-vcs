@@ -137,6 +137,8 @@ int index_status(const Index *index) {
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
     FILE *fp;
+    char hex[HASH_HEX_SIZE + 1];
+    IndexEntry temp;
 
     if (!index) return -1;
 
@@ -144,7 +146,25 @@ int index_load(Index *index) {
 
     fp = fopen(INDEX_FILE, "r");
     if (!fp) {
-        return 0;   // missing index file = empty index
+        return 0;
+    }
+
+    while (index->count < MAX_INDEX_ENTRIES) {
+        int rc = fscanf(fp, "%o %64s %" SCNu64 " %" SCNu32 " %511[^\n]\n",
+                        &temp.mode, hex, &temp.mtime_sec, &temp.size, temp.path);
+
+        if (rc == EOF) break;
+        if (rc != 5) {
+            fclose(fp);
+            return -1;
+        }
+
+        if (hex_to_hash(hex, &temp.hash) != 0) {
+            fclose(fp);
+            return -1;
+        }
+
+        index->entries[index->count++] = temp;
     }
 
     fclose(fp);
