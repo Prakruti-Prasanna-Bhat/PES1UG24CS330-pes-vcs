@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <inttypes.h>
 
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
 
@@ -135,10 +136,19 @@ int index_status(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
-    // TODO: Implement index loading
-    // (See Lab Appendix for logical steps)
-    (void)index;
-    return -1;
+    FILE *fp;
+
+    if (!index) return -1;
+
+    index->count = 0;
+
+    fp = fopen(INDEX_FILE, "r");
+    if (!fp) {
+        return 0;   // missing index file = empty index
+    }
+
+    fclose(fp);
+    return 0;
 }
 
 // Save the index to .pes/index atomically.
