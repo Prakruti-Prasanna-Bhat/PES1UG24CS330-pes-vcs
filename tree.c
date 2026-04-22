@@ -242,6 +242,57 @@ static int add_files_for_prefix(Tree *tree, const Index *index, const char *pref
 
     return 0;
 }
+static int write_tree_level(const Index *index, const char *prefix, ObjectID *id_out) {
+    Tree tree;
+    char subdirs[MAX_TREE_ENTRIES][256];
+    int subdir_count = 0;
+    int i;
+
+    if (!index || !prefix || !id_out) return -1;
+
+    tree.count = 0;
+
+    if (add_files_for_prefix(&tree, index, prefix) != 0) {
+        return -1;
+    }
+
+    if (collect_subdir_names(index, prefix, subdirs, &subdir_count) != 0) {
+        return -1;
+    }
+
+    for (i = 0; i < subdir_count; i++) {
+        char child_prefix[1024];
+        ObjectID child_id;
+
+        snprintf(child_prefix, sizeof(child_prefix), "%s%s/", prefix, subdirs[i]);
+
+        if (write_tree_level(index, child_prefix, &child_id) != 0) {
+            return -1;
+        }
+
+        if (!name_in_tree(&tree, subdirs[i])) {
+            if (add_dir_entry(&tree, subdirs[i], &child_id) != 0) {
+                return -1;
+            }
+        }
+    }
+
+    {
+        void *raw = NULL;
+        size_t raw_len = 0;
+        int rc;
+
+        rc = tree_serialize(&tree, &raw, &raw_len);
+        if (rc != 0) return -1;
+
+        rc = object_write(OBJ_TREE, raw, raw_len, id_out);
+        free(raw);
+
+        if (rc != 0) return -1;
+    }
+
+    return 0;
+}
 // Build a tree hierarchy from the current index and write all tree
 // objects to the object store.
 //
