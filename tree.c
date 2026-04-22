@@ -217,6 +217,31 @@ static int collect_subdir_names(const Index *index, const char *prefix,
     *count_out = count;
     return 0;
 }
+static int add_files_for_prefix(Tree *tree, const Index *index, const char *prefix) {
+    int i;
+    size_t prefix_len;
+
+    if (!tree || !index || !prefix) return -1;
+
+    prefix_len = strlen(prefix);
+
+    for (i = 0; i < index->count; i++) {
+        const IndexEntry *src = &index->entries[i];
+        const char *path = src->path;
+        const char *suffix;
+
+        if (strncmp(path, prefix, prefix_len) != 0) continue;
+
+        suffix = path + prefix_len;
+        if (strchr(suffix, '/') != NULL) continue;
+
+        if (add_file_entry(tree, suffix, src->mode, &src->hash) != 0) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
 // Build a tree hierarchy from the current index and write all tree
 // objects to the object store.
 //
