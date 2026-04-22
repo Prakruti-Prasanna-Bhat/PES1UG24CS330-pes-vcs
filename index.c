@@ -125,7 +125,7 @@ int index_status(const Index *index) {
 
     return 0;
 }
-
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 // ─── TODO: Implement these ───────────────────────────────────────────────────
 
 // Load the index from .pes/index.
@@ -234,8 +234,39 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
-    // TODO: Implement file staging
-    // (See Lab Appendix for logical steps)
-    (void)index; (void)path;
-    return -1;
+    FILE *fp;
+    struct stat st;
+    void *buf = NULL;
+    size_t bytes_read;
+    ObjectID id;
+
+    if (!index || !path) return -1;
+
+    if (stat(path, &st) != 0) return -1;
+    if (!S_ISREG(st.st_mode)) return -1;
+
+    fp = fopen(path, "rb");
+    if (!fp) return -1;
+
+    buf = malloc(st.st_size ? (size_t)st.st_size : 1);
+    if (!buf) {
+        fclose(fp);
+        return -1;
+    }
+
+    bytes_read = fread(buf, 1, (size_t)st.st_size, fp);
+    fclose(fp);
+
+    if (bytes_read != (size_t)st.st_size) {
+        free(buf);
+        return -1;
+    }
+
+    if (object_write(OBJ_BLOB, buf, (size_t)st.st_size, &id) != 0) {
+        free(buf);
+        return -1;
+    }
+
+    free(buf);
+    return 0;
 }
