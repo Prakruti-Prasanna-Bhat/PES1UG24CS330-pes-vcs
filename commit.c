@@ -202,7 +202,12 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     if (tree_from_index(&c.tree) < 0) {
         return -1; // Failed to build tree (maybe index is empty/corrupt)
     }
+    
+    if (head_read(&c.parent) == 0) {
+        c.has_parent = 1;
+    } else {
+        c.has_parent = 0; 
+    }
 
-    // Temporary return until we add the parent linking in Step 2
     return 0;
 }
