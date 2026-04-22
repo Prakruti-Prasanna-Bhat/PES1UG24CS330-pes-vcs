@@ -214,7 +214,14 @@ int index_save(const Index *index) {
                 sorted.entries[i].path);
     }
 
+    fflush(fp);
+    fsync(fileno(fp));
     fclose(fp);
+
+    if (rename(tmp_path, INDEX_FILE) != 0) {
+        return -1;
+    }
+
     return 0;
 }
 // Stage a file for the next commit.
