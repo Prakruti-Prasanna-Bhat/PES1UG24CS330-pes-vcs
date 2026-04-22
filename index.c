@@ -23,8 +23,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
-#include <inttypes.h>
-
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
 
 // Find an index entry by path (linear scan).
@@ -125,7 +124,7 @@ int index_status(const Index *index) {
 
     return 0;
 }
-int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
+
 // ─── TODO: Implement these ───────────────────────────────────────────────────
 
 // Load the index from .pes/index.
@@ -136,41 +135,38 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 //
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
-    FILE *fp;
-    char hex[HASH_HEX_SIZE + 1];
-    IndexEntry temp;
-
-    if (!index) return -1;
-
     index->count = 0;
-
-    fp = fopen(INDEX_FILE, "r");
-    if (!fp) {
-        return 0;
+    
+    // 1. Try to open the index file
+    FILE *f = fopen(INDEX_FILE, "r");
+    if (!f) {
+        // It's perfectly fine if the index doesn't exist yet (e.g., brand new repo)
+        return 0; 
     }
 
-    while (index->count < MAX_INDEX_ENTRIES) {
-        int rc = fscanf(fp, "%o %64s %" SCNu64 " %" SCNu32 " %511[^\n]\n",
-                        &temp.mode, hex, &temp.mtime_sec, &temp.size, temp.path);
+    // 2. Read each line from the text file
+    char hex_hash[HASH_HEX_SIZE + 1];
+    char path_buf[256];
+    uint32_t mode;
+    uint64_t mtime, size;
 
-        if (rc == EOF) break;
-        if (rc != 5) {
-            fclose(fp);
-            return -1;
-        }
+    // fscanf reads formatted text: octal, string(hex), long, long, string
+    while (fscanf(f, "%o %64s %lu %lu %255s", &mode, hex_hash, &mtime, &size, path_buf) == 5) {
+        if (index->count >= MAX_INDEX_ENTRIES) break;
 
-        if (hex_to_hash(hex, &temp.hash) != 0) {
-            fclose(fp);
-            return -1;
-        }
-
-        index->entries[index->count++] = temp;
+        IndexEntry *entry = &index->entries[index->count++];
+        entry->mode = mode;
+        entry->mtime_sec = mtime;
+        entry->size = size;
+        strcpy(entry->path, path_buf);
+        
+        // Convert the 64-character text string back into a 32-byte binary hash
+        hex_to_hash(hex_hash, &entry->hash);
     }
 
-    fclose(fp);
+    fclose(f);
     return 0;
 }
-
 // Save the index to .pes/index atomically.
 //
 // HINTS - Useful functions and syscalls:
@@ -181,50 +177,59 @@ int index_load(Index *index) {
 //   - rename                           : atomically moving the temp file over the old index
 //
 // Returns 0 on success, -1 on error.
+// Helper function to sort index entries alphabetically by path
 static int compare_index_entries(const void *a, const void *b) {
-    const IndexEntry *ea = (const IndexEntry *)a;
-    const IndexEntry *eb = (const IndexEntry *)b;
-    return strcmp(ea->path, eb->path);
+    return strcmp(((const IndexEntry *)a)->path, ((const IndexEntry *)b)->path);
 }
 int index_save(const Index *index) {
-    Index sorted;
-    FILE *fp;
-    char tmp_path[512];
-    int i;
+    // 1. Allocate the massive struct on the heap instead of the stack!
+    Index *sorted_index = malloc(sizeof(Index));
+    if (!sorted_index) return -1;
+    
+    *sorted_index = *index; // Copy the data safely
+    
+    // Sort the heap copy
+    qsort(sorted_index->entries, sorted_index->count, sizeof(IndexEntry), compare_index_entries);
 
-    if (!index) return -1;
+    // 2. Create a temporary file path
+    char tmppath[256];
+    snprintf(tmppath, sizeof(tmppath), "%s.tmp", INDEX_FILE);
 
-    sorted = *index;
-    qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_index_entries);
-
-    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", INDEX_FILE);
-
-    fp = fopen(tmp_path, "w");
-    if (!fp) return -1;
-
-    for (i = 0; i < sorted.count; i++) {
-        char hex[HASH_HEX_SIZE + 1];
-        hash_to_hex(&sorted.entries[i].hash, hex);
-
-        fprintf(fp, "%o %s %" PRIu64 " %" PRIu32 " %s\n",
-                sorted.entries[i].mode,
-                hex,
-                sorted.entries[i].mtime_sec,
-                sorted.entries[i].size,
-                sorted.entries[i].path);
-    }
-
-    fflush(fp);
-    fsync(fileno(fp));
-    fclose(fp);
-
-    if (rename(tmp_path, INDEX_FILE) != 0) {
+    // 3. Open the temp file for writing
+    FILE *f = fopen(tmppath, "w");
+    if (!f) {
+        free(sorted_index);
         return -1;
     }
 
+    // 4. Write each entry
+    for (int i = 0; i < sorted_index->count; i++) {
+        char hex[HASH_HEX_SIZE + 1];
+        hash_to_hex(&sorted_index->entries[i].hash, hex);
+        
+        fprintf(f, "%o %s %lu %lu %s\n",
+                sorted_index->entries[i].mode,
+                hex,
+                (unsigned long)sorted_index->entries[i].mtime_sec,
+                (unsigned long)sorted_index->entries[i].size,
+                sorted_index->entries[i].path);
+    }
+
+    // 5. Force the data to physical disk
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+
+    // 6. Atomically replace the old index
+    if (rename(tmppath, INDEX_FILE) < 0) {
+        free(sorted_index);
+        return -1;
+    }
+
+    // Free the heap memory so we don't cause a memory leak!
+    free(sorted_index);
     return 0;
 }
-// Stage a file for the next commit.
 //
 // HINTS - Useful functions and syscalls:
 //   - fopen, fread, fclose             : reading the target file's contents
@@ -234,57 +239,59 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
-    FILE *fp;
+    // 1. Get the file's metadata (size, last modified time, permissions)
     struct stat st;
-    void *buf = NULL;
-    size_t bytes_read;
+    if (lstat(path, &st) != 0) {
+        return -1; // File doesn't exist or can't be read
+    }
+
+    // Ensure we are only staging regular files (no directories or symlinks for now)
+    if (!S_ISREG(st.st_mode)) {
+        return -1; 
+    }
+
+    // 2. Open and read the entire file into memory
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+
+    uint8_t *data = malloc(st.st_size);
+    if (!data && st.st_size > 0) {
+        fclose(f);
+        return -1;
+    }
+
+    if (st.st_size > 0 && fread(data, 1, st.st_size, f) != (size_t)st.st_size) {
+        free(data);
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+
+    // 3. Save the file contents to the object store as a BLOB
     ObjectID id;
-    IndexEntry *entry;
-
-    if (!index || !path) return -1;
-
-    if (stat(path, &st) != 0) return -1;
-    if (!S_ISREG(st.st_mode)) return -1;
-
-    fp = fopen(path, "rb");
-    if (!fp) return -1;
-
-    buf = malloc(st.st_size ? (size_t)st.st_size : 1);
-    if (!buf) {
-        fclose(fp);
+    if (object_write(OBJ_BLOB, data, st.st_size, &id) < 0) {
+        free(data);
         return -1;
     }
+    free(data);
 
-    bytes_read = fread(buf, 1, (size_t)st.st_size, fp);
-    fclose(fp);
-
-    if (bytes_read != (size_t)st.st_size) {
-        free(buf);
-        return -1;
-    }
-
-    if (object_write(OBJ_BLOB, buf, (size_t)st.st_size, &id) != 0) {
-        free(buf);
-        return -1;
-    }
-    free(buf);
-
-    entry = index_find(index, path);
-    if (entry) {
-        entry->hash = id;
-        entry->mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
-        entry->mtime_sec = (uint64_t)st.st_mtime;
-        entry->size = (uint32_t)st.st_size;
-    } else {
+    // 4. Update or create the index entry
+    IndexEntry *entry = index_find(index, path);
+    if (!entry) {
+        // Not in index yet, make a new entry
         if (index->count >= MAX_INDEX_ENTRIES) return -1;
-
         entry = &index->entries[index->count++];
-        entry->hash = id;
-        entry->mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
-        entry->mtime_sec = (uint64_t)st.st_mtime;
-        entry->size = (uint32_t)st.st_size;
-        snprintf(entry->path, sizeof(entry->path), "%s", path);
+        strcpy(entry->path, path);
     }
 
+    // 5. Update the metadata and the new hash
+    // Git usually stores 100644 for regular files, and 100755 for executables
+    entry->mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
+    entry->mtime_sec = st.st_mtime;
+    entry->size = st.st_size;
+    entry->hash = id;
+
+    // 6. Save the updated index back to disk
     return index_save(index);
+
 }
