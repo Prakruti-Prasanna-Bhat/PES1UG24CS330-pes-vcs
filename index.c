@@ -239,6 +239,7 @@ int index_add(Index *index, const char *path) {
     void *buf = NULL;
     size_t bytes_read;
     ObjectID id;
+    IndexEntry *entry;
 
     if (!index || !path) return -1;
 
@@ -266,7 +267,24 @@ int index_add(Index *index, const char *path) {
         free(buf);
         return -1;
     }
-
     free(buf);
-    return 0;
+
+    entry = index_find(index, path);
+    if (entry) {
+        entry->hash = id;
+        entry->mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
+        entry->mtime_sec = (uint64_t)st.st_mtime;
+        entry->size = (uint32_t)st.st_size;
+    } else {
+        if (index->count >= MAX_INDEX_ENTRIES) return -1;
+
+        entry = &index->entries[index->count++];
+        entry->hash = id;
+        entry->mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
+        entry->mtime_sec = (uint64_t)st.st_mtime;
+        entry->size = (uint32_t)st.st_size;
+        snprintf(entry->path, sizeof(entry->path), "%s", path);
+    }
+
+    return index_save(index);
 }
